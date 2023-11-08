@@ -32,13 +32,13 @@ func NewMultiTCPMuxDefault(muxes ...TCPMux) *MultiTCPMuxDefault {
 // creates the connection if an existing one can't be found. This, unlike
 // GetAllConns, will only return a single PacketConn from the first mux that was
 // passed in to NewMultiTCPMuxDefault.
-func (m *MultiTCPMuxDefault) GetConnByUfrag(ufrag string, isIPv6 bool, local net.IP) (net.PacketConn, error) {
+func (m *MultiTCPMuxDefault) GetConnByUfrag(ufrag string) (net.PacketConn, error) {
 	// NOTE: We always use the first element here in order to maintain the
 	// behavior of using an existing connection if one exists.
 	if len(m.muxes) == 0 {
 		return nil, errNoTCPMuxAvailable
 	}
-	return m.muxes[0].GetConnByUfrag(ufrag, isIPv6, local)
+	return m.muxes[0].GetConnByUfrag(ufrag)
 }
 
 // RemoveConnByUfrag stops and removes the muxed packet connection
@@ -50,14 +50,14 @@ func (m *MultiTCPMuxDefault) RemoveConnByUfrag(ufrag string) {
 }
 
 // GetAllConns returns a PacketConn for each underlying TCPMux
-func (m *MultiTCPMuxDefault) GetAllConns(ufrag string, isIPv6 bool, local net.IP) ([]net.PacketConn, error) {
+func (m *MultiTCPMuxDefault) GetAllConns(ufrag string) ([]net.PacketConn, error) {
 	if len(m.muxes) == 0 {
 		// Make sure that we either return at least one connection or an error.
 		return nil, errNoTCPMuxAvailable
 	}
 	var conns []net.PacketConn
 	for _, mux := range m.muxes {
-		conn, err := mux.GetConnByUfrag(ufrag, isIPv6, local)
+		conn, err := mux.GetConnByUfrag(ufrag)
 		if err != nil {
 			// For now, this implementation is all or none.
 			return nil, err

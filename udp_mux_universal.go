@@ -91,7 +91,7 @@ func (m *UniversalUDPMuxDefault) GetRelayedAddr(net.Addr, time.Duration) (*net.A
 // GetConnForURL add uniques to the muxed connection by concatenating ufrag and URL (e.g. STUN URL) to be able to support multiple STUN/TURN servers
 // and return a unique connection per server.
 func (m *UniversalUDPMuxDefault) GetConnForURL(ufrag string, url string, addr net.Addr) (net.PacketConn, error) {
-	return m.UDPMuxDefault.GetConn(fmt.Sprintf("%s%s", ufrag, url), addr)
+	return m.UDPMuxDefault.GetConn(fmt.Sprintf("%s%s", ufrag, url))
 }
 
 // ReadFrom is called by UDPMux connWorker and handles packets coming from the STUN server discovering a mapped address.

@@ -16,33 +16,21 @@ import (
 // allowing users to pass multiple UDPMux instances to the ICE agent
 // configuration.
 type MultiUDPMuxDefault struct {
-	muxes          []UDPMux
-	localAddrToMux map[string]UDPMux
+	muxes []UDPMux
 }
 
 // NewMultiUDPMuxDefault creates an instance of MultiUDPMuxDefault that
 // uses the provided UDPMux instances.
 func NewMultiUDPMuxDefault(muxes ...UDPMux) *MultiUDPMuxDefault {
-	addrToMux := make(map[string]UDPMux)
-	for _, mux := range muxes {
-		for _, addr := range mux.GetListenAddresses() {
-			addrToMux[addr.String()] = mux
-		}
-	}
 	return &MultiUDPMuxDefault{
-		muxes:          muxes,
-		localAddrToMux: addrToMux,
+		muxes: muxes,
 	}
 }
 
 // GetConn returns a PacketConn given the connection's ufrag and network
 // creates the connection if an existing one can't be found.
-func (m *MultiUDPMuxDefault) GetConn(ufrag string, addr net.Addr) (net.PacketConn, error) {
-	mux, ok := m.localAddrToMux[addr.String()]
-	if !ok {
-		return nil, errNoUDPMuxAvailable
-	}
-	return mux.GetConn(ufrag, addr)
+func (m *MultiUDPMuxDefault) GetConn(ufrag string) (net.PacketConn, error) {
+	return nil, errNoUDPMuxAvailable
 }
 
 // RemoveConnByUfrag stops and removes the muxed packet connection
@@ -66,7 +54,7 @@ func (m *MultiUDPMuxDefault) Close() error {
 
 // GetListenAddresses returns the list of addresses that this mux is listening on
 func (m *MultiUDPMuxDefault) GetListenAddresses() []net.Addr {
-	addrs := make([]net.Addr, 0, len(m.localAddrToMux))
+	addrs := make([]net.Addr, 0, len(m.muxes))
 	for _, mux := range m.muxes {
 		addrs = append(addrs, mux.GetListenAddresses()...)
 	}

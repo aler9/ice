@@ -128,6 +128,8 @@ type AgentConfig struct {
 	// candidate gathering.
 	NAT1To1IPs []string
 
+	AdditionalHosts []string
+
 	// HostAcceptanceMinWait specify a minimum wait time before selecting host candidates
 	HostAcceptanceMinWait *time.Duration
 	// HostAcceptanceMinWait specify a minimum wait time before selecting srflx candidates
@@ -168,6 +170,8 @@ type AgentConfig struct {
 	// defer to UDPMuxSrflx for incoming connections
 	// It embeds UDPMux to do the actual connection multiplexing
 	UDPMuxSrflx UniversalUDPMux
+
+	UDPRandom bool
 
 	// Proxy Dialer is a dialer that should be implemented by the user based on golang.org/x/net/proxy
 	// dial interface in order to support corporate proxies

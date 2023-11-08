@@ -77,7 +77,7 @@ func TestMultiUDPMux(t *testing.T) {
 	require.NoError(t, udpMuxMulti.Close())
 
 	// Can't create more connections
-	_, err = udpMuxMulti.GetConn("failufrag", conn1.LocalAddr())
+	_, err = udpMuxMulti.GetConn("failufrag")
 	require.Error(t, err)
 }
 
@@ -92,7 +92,7 @@ func testMultiUDPMuxConnections(t *testing.T, udpMuxMulti *MultiUDPMuxDefault, u
 		} else if network == udp6 && udpAddr.IP.To4() != nil {
 			continue
 		}
-		c, err := udpMuxMulti.GetConn(ufrag, addr)
+		c, err := udpMuxMulti.GetConn(ufrag)
 		require.NoError(t, err, "error retrieving muxed connection for ufrag")
 		pktConns = append(pktConns, c)
 	}

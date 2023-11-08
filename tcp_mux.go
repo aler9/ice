@@ -23,7 +23,7 @@ var ErrGetTransportAddress = errors.New("failed to get local transport address")
 // interface exists to allow mocking in tests.
 type TCPMux interface {
 	io.Closer
-	GetConnByUfrag(ufrag string, isIPv6 bool, local net.IP) (net.PacketConn, error)
+	GetConnByUfrag(ufrag string) (net.PacketConn, error)
 	RemoveConnByUfrag(ufrag string)
 }
 
@@ -35,8 +35,7 @@ type TCPMuxDefault struct {
 	params *TCPMuxParams
 	closed bool
 
-	// connsIPv4 and connsIPv6 are maps of all tcpPacketConns indexed by ufrag and local address
-	connsIPv4, connsIPv6 map[string]map[ipAddr]*tcpPacketConn
+	conns map[string]*tcpPacketConn
 
 	mu sync.Mutex
 	wg sync.WaitGroup
@@ -63,8 +62,7 @@ func NewTCPMuxDefault(params TCPMuxParams) *TCPMuxDefault {
 	m := &TCPMuxDefault{
 		params: &params,
 
-		connsIPv4: map[string]map[ipAddr]*tcpPacketConn{},
-		connsIPv6: map[string]map[ipAddr]*tcpPacketConn{},
+		conns: map[string]*tcpPacketConn{},
 	}
 
 	m.wg.Add(1)
@@ -101,7 +99,7 @@ func (m *TCPMuxDefault) LocalAddr() net.Addr {
 }
 
 // GetConnByUfrag retrieves an existing or creates a new net.PacketConn.
-func (m *TCPMuxDefault) GetConnByUfrag(ufrag string, isIPv6 bool, local net.IP) (net.PacketConn, error) {
+func (m *TCPMuxDefault) GetConnByUfrag(ufrag string) (net.PacketConn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -109,20 +107,19 @@ func (m *TCPMuxDefault) GetConnByUfrag(ufrag string, isIPv6 bool, local net.IP) 
 		return nil, io.ErrClosedPipe
 	}
 
-	if conn, ok := m.getConn(ufrag, isIPv6, local); ok {
+	if conn, ok := m.getConn(ufrag); ok {
 		return conn, nil
 	}
 
-	return m.createConn(ufrag, isIPv6, local)
+	return m.createConn(ufrag)
 }
 
-func (m *TCPMuxDefault) createConn(ufrag string, isIPv6 bool, local net.IP) (*tcpPacketConn, error) {
+func (m *TCPMuxDefault) createConn(ufrag string) (*tcpPacketConn, error) {
 	addr, ok := m.LocalAddr().(*net.TCPAddr)
 	if !ok {
 		return nil, ErrGetTransportAddress
 	}
 	localAddr := *addr
-	localAddr.IP = local
 
 	conn := newTCPPacketConn(tcpPacketParams{
 		ReadBuffer:  m.params.ReadBufferSize,
@@ -131,25 +128,13 @@ func (m *TCPMuxDefault) createConn(ufrag string, isIPv6 bool, local net.IP) (*tc
 		Logger:      m.params.Logger,
 	})
 
-	var conns map[ipAddr]*tcpPacketConn
-	if isIPv6 {
-		if conns, ok = m.connsIPv6[ufrag]; !ok {
-			conns = make(map[ipAddr]*tcpPacketConn)
-			m.connsIPv6[ufrag] = conns
-		}
-	} else {
-		if conns, ok = m.connsIPv4[ufrag]; !ok {
-			conns = make(map[ipAddr]*tcpPacketConn)
-			m.connsIPv4[ufrag] = conns
-		}
-	}
-	conns[ipAddr(local.String())] = conn
+	m.conns[ufrag] = conn
 
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		<-conn.CloseChannel()
-		m.removeConnByUfragAndLocalHost(ufrag, local)
+		m.RemoveConnByUfrag(ufrag)
 	}()
 
 	return conn, nil
@@ -207,24 +192,9 @@ func (m *TCPMuxDefault) handleConn(conn net.Conn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
-	if err != nil {
-		m.closeAndLogError(conn)
-		m.params.Logger.Warnf("Failed to get host in STUN message from %s to %s", conn.RemoteAddr(), conn.LocalAddr())
-		return
-	}
-
-	isIPv6 := net.ParseIP(host).To4() == nil
-
-	localAddr, ok := conn.LocalAddr().(*net.TCPAddr)
+	packetConn, ok := m.getConn(ufrag)
 	if !ok {
-		m.closeAndLogError(conn)
-		m.params.Logger.Warnf("Failed to get local tcp address in STUN message from %s to %s", conn.RemoteAddr(), conn.LocalAddr())
-		return
-	}
-	packetConn, ok := m.getConn(ufrag, isIPv6, localAddr.IP)
-	if !ok {
-		packetConn, err = m.createConn(ufrag, isIPv6, localAddr.IP)
+		packetConn, err = m.createConn(ufrag)
 		if err != nil {
 			m.closeAndLogError(conn)
 			m.params.Logger.Warnf("Failed to create packetConn for STUN message from %s to %s", conn.RemoteAddr(), conn.LocalAddr())
@@ -244,19 +214,11 @@ func (m *TCPMuxDefault) Close() error {
 	m.mu.Lock()
 	m.closed = true
 
-	for _, conns := range m.connsIPv4 {
-		for _, conn := range conns {
-			m.closeAndLogError(conn)
-		}
-	}
-	for _, conns := range m.connsIPv6 {
-		for _, conn := range conns {
-			m.closeAndLogError(conn)
-		}
+	for _, conn := range m.conns {
+		m.closeAndLogError(conn)
 	}
 
-	m.connsIPv4 = map[string]map[ipAddr]*tcpPacketConn{}
-	m.connsIPv6 = map[string]map[ipAddr]*tcpPacketConn{}
+	m.conns = map[string]*tcpPacketConn{}
 
 	err := m.params.Listener.Close()
 
@@ -269,76 +231,25 @@ func (m *TCPMuxDefault) Close() error {
 
 // RemoveConnByUfrag closes and removes a net.PacketConn by Ufrag.
 func (m *TCPMuxDefault) RemoveConnByUfrag(ufrag string) {
-	removedConns := make([]*tcpPacketConn, 0, 4)
+	var removedConn *tcpPacketConn
 
 	// Keep lock section small to avoid deadlock with conn lock
 	m.mu.Lock()
-	if conns, ok := m.connsIPv4[ufrag]; ok {
-		delete(m.connsIPv4, ufrag)
-		for _, conn := range conns {
-			removedConns = append(removedConns, conn)
-		}
-	}
-	if conns, ok := m.connsIPv6[ufrag]; ok {
-		delete(m.connsIPv6, ufrag)
-		for _, conn := range conns {
-			removedConns = append(removedConns, conn)
-		}
-	}
-
-	m.mu.Unlock()
-
-	// Close the connections outside the critical section to avoid
-	// deadlocking TCP mux if (*tcpPacketConn).Close() blocks.
-	for _, conn := range removedConns {
-		m.closeAndLogError(conn)
-	}
-}
-
-func (m *TCPMuxDefault) removeConnByUfragAndLocalHost(ufrag string, local net.IP) {
-	removedConns := make([]*tcpPacketConn, 0, 4)
-
-	localIP := ipAddr(local.String())
-	// Keep lock section small to avoid deadlock with conn lock
-	m.mu.Lock()
-	if conns, ok := m.connsIPv4[ufrag]; ok {
-		if conn, ok := conns[localIP]; ok {
-			delete(conns, localIP)
-			if len(conns) == 0 {
-				delete(m.connsIPv4, ufrag)
-			}
-			removedConns = append(removedConns, conn)
-		}
-	}
-	if conns, ok := m.connsIPv6[ufrag]; ok {
-		if conn, ok := conns[localIP]; ok {
-			delete(conns, localIP)
-			if len(conns) == 0 {
-				delete(m.connsIPv6, ufrag)
-			}
-			removedConns = append(removedConns, conn)
-		}
+	if conn, ok := m.conns[ufrag]; ok {
+		delete(m.conns, ufrag)
+		removedConn = conn
 	}
 	m.mu.Unlock()
 
 	// Close the connections outside the critical section to avoid
 	// deadlocking TCP mux if (*tcpPacketConn).Close() blocks.
-	for _, conn := range removedConns {
-		m.closeAndLogError(conn)
+	if removedConn != nil {
+		m.closeAndLogError(removedConn)
 	}
 }
 
-func (m *TCPMuxDefault) getConn(ufrag string, isIPv6 bool, local net.IP) (val *tcpPacketConn, ok bool) {
-	var conns map[ipAddr]*tcpPacketConn
-	if isIPv6 {
-		conns, ok = m.connsIPv6[ufrag]
-	} else {
-		conns, ok = m.connsIPv4[ufrag]
-	}
-	if conns != nil {
-		val, ok = conns[ipAddr(local.String())]
-	}
-
+func (m *TCPMuxDefault) getConn(ufrag string) (val *tcpPacketConn, ok bool) {
+	val, ok = m.conns[ufrag]
 	return
 }
 

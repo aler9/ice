@@ -642,7 +642,7 @@ func TestUDPMuxDefaultWithNAT1To1IPsUsage(t *testing.T) {
 	assert.NoError(t, a.GatherCandidates())
 	<-gatherCandidateDone
 
-	assert.NotEqual(t, 0, len(mux.connsIPv4))
+	assert.NotEqual(t, 0, len(mux.conns))
 
 	assert.NoError(t, a.Close())
 }

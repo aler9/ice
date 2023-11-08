@@ -139,10 +139,12 @@ type Agent struct {
 	tcpMux      TCPMux
 	udpMux      UDPMux
 	udpMuxSrflx UniversalUDPMux
+	udpRandom   bool
 
 	interfaceFilter func(string) bool
 	ipFilter        func(net.IP) bool
 	includeLoopback bool
+	additionalHosts []string
 
 	insecureSkipVerify bool
 
@@ -304,6 +306,7 @@ func NewAgent(config *AgentConfig) (*Agent, error) { //nolint:gocognit
 		tcpMux:            config.TCPMux,
 		udpMux:            config.UDPMux,
 		udpMuxSrflx:       config.UDPMuxSrflx,
+		udpRandom:         config.UDPRandom,
 
 		mDNSMode: mDNSMode,
 		mDNSName: mDNSName,
@@ -319,6 +322,8 @@ func NewAgent(config *AgentConfig) (*Agent, error) { //nolint:gocognit
 		insecureSkipVerify: config.InsecureSkipVerify,
 
 		includeLoopback: config.IncludeLoopback,
+
+		additionalHosts: config.AdditionalHosts,
 
 		disableActiveTCP: config.DisableActiveTCP,
 	}
@@ -836,6 +841,20 @@ func (a *Agent) addCandidate(ctx context.Context, c Candidate, candidateConn net
 
 		a.chanCandidate <- c
 	})
+}
+
+func (a *Agent) createAndAddCandidate(ctx context.Context, conn net.PacketConn, hostConfig *CandidateHostConfig) error {
+	c, err := NewCandidateHost(hostConfig)
+	if err != nil {
+		return err
+	}
+
+	err = a.addCandidate(ctx, c, conn)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // GetRemoteCandidates returns the remote candidates

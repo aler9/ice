@@ -5,7 +5,6 @@ package ice
 
 import (
 	"net"
-	"strings"
 )
 
 // CandidateHost is a candidate of type host
@@ -50,18 +49,16 @@ func NewCandidateHost(config *CandidateHostConfig) (*CandidateHost, error) {
 		network: config.Network,
 	}
 
-	if !strings.HasSuffix(config.Address, ".local") {
-		ip := net.ParseIP(config.Address)
-		if ip == nil {
-			return nil, ErrAddressParseFailed
-		}
-
+	if ip := net.ParseIP(config.Address); ip != nil {
 		if err := c.setIP(ip); err != nil {
 			return nil, err
 		}
 	} else {
-		// Until mDNS candidate is resolved assume it is UDPv4
-		c.candidateBase.networkType = NetworkTypeUDP4
+		if c.network == udp {
+			c.candidateBase.networkType = NetworkTypeUDP4
+		} else {
+			c.candidateBase.networkType = NetworkTypeTCP4
+		}
 	}
 
 	return c, nil

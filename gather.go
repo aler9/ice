@@ -38,27 +38,31 @@ func closeConnAndLog(c io.Closer, log logging.LeveledLogger, msg string, args ..
 	}
 }
 
-func hostStr(h interface{}) string {
-	if ip, ok := h.(net.IP); ok {
-		return ip.String()
+func contains(list []string, v string) bool {
+	for _, entry := range list {
+		if entry == v {
+			return true
+		}
 	}
-	return h.(string)
+	return false
 }
 
-func (a *Agent) gatherIPsAndHosts(networkTypes []NetworkType) ([]interface{}, error) {
+func (a *Agent) gatherIPsAndHosts(networkTypes []NetworkType) ([]string, error) {
 	localIPs, err := localInterfaces(a.net, a.interfaceFilter, a.ipFilter, networkTypes, a.includeLoopback)
 	if err != nil {
 		return nil, err
 	}
 
-	var hosts []interface{}
+	var hosts []string
 
 	for _, ip := range localIPs {
-		hosts = append(hosts, ip)
+		hosts = append(hosts, ip.String())
 	}
 
 	for _, host := range a.additionalHosts {
-		hosts = append(hosts, host)
+		if !contains(hosts, host) {
+			hosts = append(hosts, host)
+		}
 	}
 
 	return hosts, nil
@@ -172,7 +176,7 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 	}
 }
 
-func (a *Agent) gatherCandidatesLocalUDPRandom(ctx context.Context, hosts []interface{}) {
+func (a *Agent) gatherCandidatesLocalUDPRandom(ctx context.Context, hosts []string) {
 	conn, err := listenUDPInPortRange(a.net, a.log, int(a.portMax), int(a.portMin), udp, &net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: 0})
 	if err != nil {
 		a.log.Warnf("Failed to listen: %s", err)
@@ -184,7 +188,7 @@ func (a *Agent) gatherCandidatesLocalUDPRandom(ctx context.Context, hosts []inte
 	for _, host := range hosts {
 		hostConfig := CandidateHostConfig{
 			Network:   udp,
-			Address:   hostStr(host),
+			Address:   host,
 			Port:      connPort,
 			Component: ComponentRTP,
 		}
@@ -197,11 +201,11 @@ func (a *Agent) gatherCandidatesLocalUDPRandom(ctx context.Context, hosts []inte
 	}
 }
 
-func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, hosts []interface{}) {
+func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, hosts []string) {
 	localAddr := a.udpMux.(*UDPMuxDefault).LocalAddr().(*net.UDPAddr)
 
 	if !localAddr.IP.IsUnspecified() {
-		hosts = []interface{}{localAddr.IP}
+		hosts = []string{localAddr.IP.String()}
 	}
 
 	conn, err := a.udpMux.GetConn(a.localUfrag)
@@ -213,7 +217,7 @@ func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, hosts []interfa
 	for _, host := range hosts {
 		hostConfig := CandidateHostConfig{
 			Network:   udp,
-			Address:   hostStr(host),
+			Address:   host,
 			Port:      localAddr.Port,
 			Component: ComponentRTP,
 		}
@@ -226,11 +230,11 @@ func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, hosts []interfa
 	}
 }
 
-func (a *Agent) gatherCandidatesLocalTCPMux(ctx context.Context, hosts []interface{}) {
+func (a *Agent) gatherCandidatesLocalTCPMux(ctx context.Context, hosts []string) {
 	localAddr := a.tcpMux.(*TCPMuxDefault).LocalAddr().(*net.TCPAddr)
 
 	if !localAddr.IP.IsUnspecified() {
-		hosts = []interface{}{localAddr.IP}
+		hosts = []string{localAddr.IP.String()}
 	}
 
 	conn, err := a.tcpMux.GetConnByUfrag(a.localUfrag)
@@ -242,7 +246,7 @@ func (a *Agent) gatherCandidatesLocalTCPMux(ctx context.Context, hosts []interfa
 	for _, host := range hosts {
 		hostConfig := CandidateHostConfig{
 			Network:   tcp,
-			Address:   hostStr(host),
+			Address:   host,
 			Port:      localAddr.Port,
 			Component: ComponentRTP,
 			TCPType:   TCPTypePassive,

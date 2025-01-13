@@ -116,17 +116,13 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 	for _, networkType := range networkTypes {
 		if networkType.IsTCP() {
 			networks[tcp] = struct{}{}
-		} else {
-			networks[udp] = struct{}{}
 		}
 	}
 
-	// When UDPMux is enabled, skip other UDP candidates
 	if a.udpMux != nil {
 		if err := a.gatherCandidatesLocalUDPMux(ctx); err != nil {
 			a.log.Warnf("Failed to create host candidate for UDPMux: %s", err)
 		}
-		delete(networks, udp)
 	}
 
 	_, localAddrs, err := localInterfaces(a.net, a.interfaceFilter, a.ipFilter, networkTypes, a.includeLoopback)

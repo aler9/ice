@@ -131,6 +131,8 @@ type AgentConfig struct {
 	// candidate gathering.
 	NAT1To1IPs []string
 
+	AdditionalHosts []string
+
 	// HostAcceptanceMinWait specify a minimum wait time before selecting host candidates
 	HostAcceptanceMinWait *time.Duration
 	// SrflxAcceptanceMinWait specify a minimum wait time before selecting srflx candidates

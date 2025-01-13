@@ -142,6 +142,8 @@ type Agent struct {
 	ipFilter        func(net.IP) (keep bool)
 	includeLoopback bool
 
+	additionalHosts []string
+
 	insecureSkipVerify bool
 
 	proxyDialer proxy.Dialer
@@ -217,6 +219,8 @@ func NewAgent(config *AgentConfig) (*Agent, error) { //nolint:gocognit
 		insecureSkipVerify: config.InsecureSkipVerify,
 
 		includeLoopback: config.IncludeLoopback,
+
+		additionalHosts: config.AdditionalHosts,
 
 		disableActiveTCP: config.DisableActiveTCP,
 

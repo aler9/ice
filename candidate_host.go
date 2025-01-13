@@ -5,7 +5,6 @@ package ice
 
 import (
 	"net/netip"
-	"strings"
 )
 
 // CandidateHost is a candidate of type host
@@ -52,17 +51,13 @@ func NewCandidateHost(config *CandidateHostConfig) (*CandidateHost, error) {
 		network: config.Network,
 	}
 
-	if !strings.HasSuffix(config.Address, ".local") {
-		ipAddr, err := netip.ParseAddr(config.Address)
-		if err != nil {
-			return nil, err
-		}
-
+	if ipAddr, err := netip.ParseAddr(config.Address); err == nil {
 		if err := c.setIPAddr(ipAddr); err != nil {
 			return nil, err
 		}
+	} else if config.Network == tcp {
+		c.candidateBase.networkType = NetworkTypeTCP4
 	} else {
-		// Until mDNS candidate is resolved assume it is UDPv4
 		c.candidateBase.networkType = NetworkTypeUDP4
 	}
 

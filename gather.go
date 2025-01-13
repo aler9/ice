@@ -111,6 +111,25 @@ func (a *Agent) gatherCandidates(ctx context.Context, done chan struct{}) {
 	}
 }
 
+func contains(list []netip.Addr, v string) bool {
+	for _, entry := range list {
+		if entry.String() == v {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Agent) additionalHostsFiltered(localAddrs []netip.Addr) []string {
+	var hosts []string
+	for _, host := range a.additionalHosts {
+		if !contains(localAddrs, host) {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
+}
+
 func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []NetworkType) { //nolint:gocognit
 	networks := map[string]struct{}{}
 	for _, networkType := range networkTypes {
@@ -125,8 +144,10 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 		return
 	}
 
+	additionalHosts := a.additionalHostsFiltered(localAddrs)
+
 	if a.udpMux != nil {
-		if err := a.gatherCandidatesLocalUDPMux(ctx, localAddrs); err != nil {
+		if err := a.gatherCandidatesLocalUDPMux(ctx, localAddrs, additionalHosts); err != nil {
 			a.log.Warnf("Failed to create host candidate for UDPMux: %s", err)
 		}
 	}
@@ -263,6 +284,38 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 			}
 		}
 	}
+
+	if a.tcpMux != nil {
+		tcpAddr := a.tcpMux.(*TCPMuxDefault).LocalAddr().(*net.TCPAddr)
+
+		conn, err := a.tcpMux.GetConnByUfrag(a.localUfrag, false, tcpAddr.IP)
+		if err != nil {
+			panic(err)
+		}
+
+		for _, host := range additionalHosts {
+			hostConfig := CandidateHostConfig{
+				Network:   tcp,
+				Address:   host,
+				Port:      tcpAddr.Port,
+				Component: ComponentRTP,
+				TCPType:   TCPTypePassive,
+			}
+
+			c, err := NewCandidateHost(&hostConfig)
+			if err != nil {
+				a.log.Warnf("failed to create host candidate: %v", err)
+				continue
+			}
+
+			if err := a.addCandidate(ctx, c, conn); err != nil {
+				if closeErr := c.close(); closeErr != nil {
+					a.log.Warnf("Failed to close candidate: %v", closeErr)
+				}
+				a.log.Warnf("Failed to append to localCandidates and run onCandidateHdlr: %v", err)
+			}
+		}
+	}
 }
 
 // shouldFilterLocationTrackedIP returns if this candidate IP should be filtered out from
@@ -286,7 +339,7 @@ func shouldFilterLocationTracked(candidateIP net.IP) bool {
 	return shouldFilterLocationTrackedIP(addr)
 }
 
-func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, localAddresses []netip.Addr) error { //nolint:gocognit
+func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, localAddresses []netip.Addr, additionalHosts []string) error { //nolint:gocognit
 	if a.udpMux == nil {
 		return errUDPMuxDisabled
 	}
@@ -367,6 +420,47 @@ func (a *Agent) gatherCandidatesLocalUDPMux(ctx context.Context, localAddresses 
 			}
 
 			closeConnAndLog(conn, a.log, "failed to add candidate: %s %d: %v", candidateIP, udpAddr.Port, err)
+			continue
+		}
+
+		existingConfigs[hostConfig] = struct{}{}
+	}
+
+	udpAddr := a.udpMux.GetListenAddresses()[0].(*net.UDPAddr)
+
+	for _, host := range additionalHosts {
+		hostConfig := CandidateHostConfig{
+			Network:   udp,
+			Address:   host,
+			Port:      udpAddr.Port,
+			Component: ComponentRTP,
+		}
+
+		// Detect a duplicate candidate before calling addCandidate().
+		// otherwise, addCandidate() detects the duplicate candidate
+		// and close its connection, invalidating all candidates
+		// that share the same connection.
+		if _, ok := existingConfigs[hostConfig]; ok {
+			continue
+		}
+
+		conn, err := a.udpMux.GetConn(a.localUfrag, udpAddr)
+		if err != nil {
+			return err
+		}
+
+		c, err := NewCandidateHost(&hostConfig)
+		if err != nil {
+			closeConnAndLog(conn, a.log, "failed to create host mux candidate: %s %d: %v", host, udpAddr.Port, err)
+			continue
+		}
+
+		if err := a.addCandidate(ctx, c, conn); err != nil {
+			if closeErr := c.close(); closeErr != nil {
+				a.log.Warnf("Failed to close candidate: %v", closeErr)
+			}
+
+			closeConnAndLog(conn, a.log, "failed to add candidate: %s %d: %v", host, udpAddr.Port, err)
 			continue
 		}
 

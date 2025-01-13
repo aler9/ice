@@ -135,7 +135,13 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 	for _, networkType := range networkTypes {
 		if networkType.IsTCP() {
 			networks[tcp] = struct{}{}
+		} else {
+			networks[udp] = struct{}{}
 		}
+	}
+
+	if !a.localRandomUDP {
+		delete(networks, udp)
 	}
 
 	_, localAddrs, err := localInterfaces(a.net, a.interfaceFilter, a.ipFilter, networkTypes, a.includeLoopback)

@@ -143,6 +143,7 @@ type Agent struct {
 	includeLoopback bool
 
 	additionalHosts []string
+	localRandomUDP  bool
 
 	insecureSkipVerify bool
 
@@ -221,6 +222,7 @@ func NewAgent(config *AgentConfig) (*Agent, error) { //nolint:gocognit
 		includeLoopback: config.IncludeLoopback,
 
 		additionalHosts: config.AdditionalHosts,
+		localRandomUDP:  config.LocalRandomUDP,
 
 		disableActiveTCP: config.DisableActiveTCP,
 

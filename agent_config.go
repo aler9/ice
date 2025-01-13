@@ -132,6 +132,7 @@ type AgentConfig struct {
 	NAT1To1IPs []string
 
 	AdditionalHosts []string
+	LocalRandomUDP  bool
 
 	// HostAcceptanceMinWait specify a minimum wait time before selecting host candidates
 	HostAcceptanceMinWait *time.Duration
